@@ -7,8 +7,8 @@ def simulate_ou_process(x0, theta, mu, sigma, T, dt):
     # Here, T or dt could be either in hours or seconds, but then need to change the dynamics to fit 
     # (less variation from 1s to 2s for example if compared with 1h to 2h)
 
-    n_steps = int(T / dt)
-    time = np.linspace(0, T, n_steps)
+    n_steps = int((T + dt) / dt)
+    # time = np.linspace(0, T, n_steps)
     x = np.zeros(n_steps)
     x[0] = x0
     
@@ -21,7 +21,7 @@ def simulate_ou_process(x0, theta, mu, sigma, T, dt):
         diffusion = sigma * np.sqrt(dt) * epsilon[t]
         x[t] = x[t-1] + drift + diffusion
         
-    return time, x
+    return x
 
 
 
@@ -89,14 +89,6 @@ def solve_swing_equation(f_prev, p_gen, p_load, h=3.5, d=1.5, dt=0.1, f_nom=50.0
     return f_next
 
 
-
-
-"""plt.plot(time, x)
-plt.axhline(y=10, color='r', linestyle='--', label='Long-term Mean ($\mu$)')
-plt.title("Simulated wind velocity over 3 months")
-plt.xlabel("Time"); plt.ylabel("Wind Velocity")
-plt.legend(); plt.show()"""
-
 def generate_daily_load_profile(dt=0.1, P_peak = 1, P_min = 0.5):
 
     t = np.arange(0, 86400 + dt, dt) # 24 hours
@@ -156,16 +148,16 @@ def simulate_generator_load(dt=0.1, h: float = 3.5, d: float = 1.5, plot=True):
     frequencies = []
     generator_references = []
 
-    load_profile = src.generate_daily_load_profile(dt=dt) #this is the profile of a random industry
+    load_profile = generate_daily_load_profile(dt=dt) #this is the profile of a random industry
 
     for P_load in load_profile["P_load"]:
 
         if (f < (f0 + deadzone)) & (f > (f0 - deadzone)): # don't change the reference value for the generator
-            f = src.solve_swing_equation(f, P_gen, P_load, h = h, d=d, dt=dt, f_nom=f0)
+            f = solve_swing_equation(f, P_gen, P_load, h = h, d=d, dt=dt, f_nom=f0)
             frequencies.append(f)
             generator_references.append(P_gen)
         else:
-            f = src.solve_swing_equation(f, P_gen, P_load, h = h, d=d, dt=dt, f_nom=f0)
+            f = solve_swing_equation(f, P_gen, P_load, h = h, d=d, dt=dt, f_nom=f0)
             frequencies.append(f)
             P_gen = P_load
             generator_references.append(P_gen)
@@ -235,3 +227,21 @@ def simulate_generator_load(dt=0.1, h: float = 3.5, d: float = 1.5, plot=True):
         plt.tight_layout()
         plt.show()
 
+
+def create_grid_profile(dt, wind_penetration=0.2):
+    load_profile = generate_daily_load_profile(dt=dt) 
+    wind_speed = simulate_ou_process(x0=10, theta=0.0002, mu=11.2, sigma=0.007, T= 24*60*60, dt=dt)
+    wind_power_generation = src.wind_power_generation_vec(wind_speed)
+    wind_power_generation = wind_penetration * (wind_power_generation / wind_power_generation.mean())
+
+    df = pd.DataFrame(wind_power_generation)
+    df.columns = ['P_wind']
+
+    df.index = load_profile.index
+    profile = pd.concat([load_profile, df], axis=1).drop(columns='aux')
+
+    profile["P_generator"] = 0
+    profile["P_battery"] = 0
+    
+
+    return profile
